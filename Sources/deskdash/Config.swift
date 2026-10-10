@@ -39,7 +39,7 @@ struct Config: Codable, Equatable, Sendable {
     }
 
     struct Pages: Codable, Equatable, Sendable {
-        var order = ["clock", "music", "photos", "climate", "markets", "agents", "limits", "tokens"]  // all but clock and markets only when they have data
+        var order = ["clock", "music", "photos", "climate", "markets", "agents", "limits", "tokens", "system"]  // all but clock and markets only when they have data
         var seconds = 12.0
         var durations: [String: Double] = ["clock": 15]
     }

@@ -15,7 +15,7 @@
                                     // DDC too, backlight and all, if it takes the command (a private macOS API)
   },
   "pages": {
-    "order": ["clock", "music", "photos", "climate", "markets", "agents", "limits", "tokens"],  // all but clock and markets only rotate in when they have data
+    "order": ["clock", "music", "photos", "climate", "markets", "agents", "limits", "tokens", "system"],  // all but clock and markets only rotate in when they have data
     "seconds": 12,                  // how long each page stays up
     "durations": { "clock": 15 },   // per-page overrides
   },

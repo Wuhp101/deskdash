@@ -594,6 +594,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             dash.indoor = IndoorReading(sensorData: ["tact": "2976", "hact": "58", "p25r": "4", "p10r": "6",
                                                      "va10": "12", "noxl": "4", "co2r": "712", "hchr": "9"])
             dash.stats = .demo
+            dash.history = .demo
+            dash.topProcesses = ProcessLoad.demo
             dash.tokens = .demo(today: LocalDay.of(Date()))
             dash.limits = AgentLimits.demo(now: Date())
             dash.photo = Photo.demo

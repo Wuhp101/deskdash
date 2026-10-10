@@ -4,9 +4,9 @@ A glanceable dashboard for the 5" 1280×720 screen on the Wokyis M5, the dock th
 
 One native Swift binary, no dependencies, about 1 KB/s of network, nothing listening on a port. It covers only the screen whose name contains `Wokyis` (Settings can pick another), and hides if that screen goes away. Everything personal, like your city, tickers, channels and purifier, is set in its Settings window and stays on your Mac.
 
-| Clock | Now Playing | Photos | Climate | Markets | Agents | Limits | Tokens |
-|---|---|---|---|---|---|---|---|
-| ![clock](docs/clock.png) | ![now playing](docs/music.png) | ![photos](docs/photos.png) | ![climate](docs/climate.png) | ![markets](docs/markets.png) | ![agents](docs/agents.png) | ![limits](docs/limits.png) | ![tokens](docs/tokens.png) |
+| Clock | Now Playing | Photos | Climate | Markets | Agents | Limits | Tokens | System |
+|---|---|---|---|---|---|---|---|---|
+| ![clock](docs/clock.png) | ![now playing](docs/music.png) | ![photos](docs/photos.png) | ![climate](docs/climate.png) | ![markets](docs/markets.png) | ![agents](docs/agents.png) | ![limits](docs/limits.png) | ![tokens](docs/tokens.png) | ![system](docs/system.png) |
 
 ## Pages
 
@@ -50,6 +50,8 @@ Changes apply at once and are saved to `config.json`, writing only what differs 
   This page only rotates in while some session is not idle. A thin bar per active session runs along the bottom of every other page, in the same colors.
 - **Limits**: how much is left of your Claude and Codex plans' usage limits, a column per agent and a row per window, the 5-hour one and the week, all at one size so the same window sits side by side. A window a plan does not have (Codex Pro has only the week) keeps its place, marked; a row no agent has is left out. Each bar has a white tick where an even pace would leave it, so a bar that reaches past its tick has room to spare. The figures stay white while there is room. They turn amber when the window would run out before it resets at the pace so far ("RUNS OUT THU 18:00") or has under 20% left, and red under 10%. Otherwise the line under the bar says when it resets. A report older than 30 minutes says how old. This page appears once either agent has reported its limits (see [How plan limits work](#how-plan-limits-work)).
 - **Tokens**: the tokens your coding agents used on this Mac: Claude Code, Codex, Gemini CLI and Muse Code. Today's count is large, with each agent's share under it, and the last 7 and 30 days, all time, and your streak of days with any use sit beside it. Underneath are the last 26 weeks as a GitHub-style heatmap: a column per week, a row per weekday from your calendar's first day of the week, and GitHub's shades of green, from none to the busiest quarter of your days. Today is outlined. While this page shows, the count catches up every 10 s. It appears once there is any use in those weeks (see [How token counting works](#how-token-counting-works)).
+
+- **System**: the Mac's load over the last 10 minutes, as Activity Monitor graphs it, in four panels. **CPU**, with the load average beside the core count and the three busiest processes (one name's processes together, as a browser's helpers). **Temperature**, with macOS's thermal state and the 10 minutes' high and low. **Memory**, with what is used of how much, the memory pressure, and swap. **SSD**, its space used and free, and a graph of its reads (blue) and writes (amber), which move where space used hardly does. Each figure takes the clock page's meter colors. A sample lands every 2 s; the graphs start empty when deskdash starts. The busiest processes come from libproc (proc_pid_rusage), only while the page shows, about 2 ms every 4 s; disk throughput from the I/O registry's block-storage statistics, as Activity Monitor's Disk tab reads them.
 
 **Alerts.** When a session starts waiting on you, the display jumps to the agents page for 20 s, and an amber frame blinks around every page until nothing is waiting. When a session finishes, a green frame blinks for 6 s and the agents page shows for 10 s. Both jumps can be turned off in Settings → Agents. When a plan's 5-hour or weekly window drops under 20% left, the limits page shows for 20 s, once per window until it resets.
 

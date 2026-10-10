@@ -10,6 +10,7 @@ enum Page: Hashable, Sendable {
     case agents
     case limits
     case tokens
+    case system
 
     var name: String {
         switch self {
@@ -21,6 +22,7 @@ enum Page: Hashable, Sendable {
         case .agents: "agents"
         case .limits: "limits"
         case .tokens: "tokens"
+        case .system: "system"
         }
     }
 
@@ -39,6 +41,7 @@ enum Page: Hashable, Sendable {
         case .agents: "Agents"
         case .limits: "Limits"
         case .tokens: "Tokens"
+        case .system: "System"
         }
     }
 }
@@ -55,6 +58,9 @@ final class Dashboard {
     var sparks: [String: [Double]] = [:]
     var marketsConnected = false
     var stats: SystemStats?
+    /// The last 10 minutes of `stats`, and the busiest processes while the system page shows.
+    var history = SystemHistory()
+    var topProcesses: [ProcessLoad] = []
     /// What Music or Spotify is playing on this Mac; nil while nothing plays.
     private(set) var track: NowPlaying?
     var sessions: [AgentSession] = []
@@ -116,6 +122,7 @@ final class Dashboard {
             case "agents" where hasActiveAgents: out.append(.agents)
             case "limits" where hasLimits: out.append(.limits)
             case "tokens" where hasTokens: out.append(.tokens)
+            case "system" where stats != nil: out.append(.system)
             default: break
             }
         }

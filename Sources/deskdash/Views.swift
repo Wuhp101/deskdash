@@ -160,6 +160,7 @@ struct PageView: View {
         case .agents: AgentsPage(sessions: dash.visibleSessions, now: dash.now, blinkOn: dash.blinkOn)
         case .limits: LimitsPage(dash: dash)
         case .tokens: TokensPage(dash: dash)
+        case .system: SystemPage(dash: dash)
         }
     }
 }
@@ -987,6 +988,194 @@ struct PhotoPage: View {
     }
 }
 
+// MARK: system
+
+/// The Mac's load over the last 10 minutes, as Activity Monitor graphs it: CPU, temperature, memory, and the SSD, each
+/// with its figure now, a graph, and what explains it (the busiest processes, the thermal state, memory pressure and
+/// swap, free space). The graphs redraw with each sample, every 2 s; nothing animates in between.
+struct SystemPage: View {
+    let dash: Dashboard
+
+    var body: some View {
+        let s = dash.stats ?? .demo
+        let h = dash.history
+        let f = dash.config.weather.fahrenheit
+        Grid(horizontalSpacing: 24, verticalSpacing: 24) {
+            GridRow {
+                let cpuColor = Theme.quality(s.cpu.map { $0 * 100 }, fair: 70, poor: 90)
+                SystemPanel(label: "CPU", value: s.cpu.map(Fmt.wholePercent) ?? "–", unit: "%", color: cpuColor,
+                            // The load average means little without the cores it is shared across.
+                            info: L10n.f("LOAD %@ · %@ CORES", String(format: "%.1f", s.load),
+                                         "\(ProcessInfo.processInfo.activeProcessorCount)"),
+                            footer: Text(dash.topProcesses.map { "\($0.name) \(Fmt.wholePercent($0.cpu))%" }
+                                .joined(separator: " · "))) {
+                    StatChart(series: [h.cpu], range: 0...1, colors: [cpuColor])
+                }
+                let temps = h.temperature.compactMap { $0 }
+                SystemPanel(label: L10n.t("TEMP"), value: s.temperature.map { Fmt.degrees($0, fahrenheit: f) } ?? "–",
+                            unit: "°", color: Theme.color(s.thermal), info: L10n.t(Self.thermal(s.thermal)),
+                            footer: Text(temps.isEmpty ? "" : L10n.f("Last 10 min: high %@ · low %@",
+                                                                     Fmt.temperature(temps.max()!, fahrenheit: f, decimals: 0),
+                                                                     Fmt.temperature(temps.min()!, fahrenheit: f, decimals: 0)))) {
+                    StatChart(series: [h.temperature], range: 30...100, colors: [Theme.color(s.thermal)])
+                }
+            }
+            GridRow {
+                SystemPanel(label: L10n.t("MEMORY"), value: Fmt.wholePercent(s.memory), unit: "%",
+                            color: Theme.color(s.pressure),
+                            info: "\(Fmt.gigabytes(s.memoryUsed)) / \(Fmt.gigabytes(s.memoryTotal)) GB",
+                            footer: Text(L10n.f("Pressure %@ · swap %@", L10n.t(Self.pressure(s.pressure)), Fmt.size(s.swapUsed)))) {
+                    StatChart(series: [h.memory], range: 0...1, colors: [Theme.color(s.pressure)])
+                }
+                SystemPanel(label: "SSD", value: s.diskUsed.map(Fmt.wholePercent) ?? "–", unit: "%",
+                            color: Theme.quality(s.diskUsed.map { $0 * 100 }, fair: 80, poor: 90),
+                            info: s.diskFree.map { L10n.f("%@ free", Fmt.size($0)) } ?? "",
+                            // The words in their lines' colors, as the graph's legend.
+                            footer: SystemPage.legend(L10n.f("Read %@", Fmt.rate(s.diskRead ?? 0)),
+                                                      L10n.f("write %@", Fmt.rate(s.diskWrite ?? 0)))) {
+                    // Throughput, which moves, rather than space used, which hardly does. Read in blue, write in amber.
+                    let peak = max(4_000_000, (h.diskRead + h.diskWrite).compactMap { $0 }.max() ?? 0)
+                    StatChart(series: [h.diskRead, h.diskWrite], range: 0...peak, colors: [Theme.working, Theme.waiting])
+                }
+            }
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 66)  // clear of the agent bars along the bottom edge
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// "Read 18 MB/s · write 3.1 MB/s", each in its line's color.
+    static func legend(_ read: String, _ write: String) -> Text {
+        Text("\(Text(read).foregroundStyle(Theme.working))  ·  \(Text(write).foregroundStyle(Theme.waiting))")
+    }
+
+    private static func thermal(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: "NOMINAL"
+        case .fair: "FAIR"
+        case .serious: "SERIOUS"
+        default: "CRITICAL"
+        }
+    }
+
+    private static func pressure(_ p: SystemStats.Pressure) -> String {
+        switch p {
+        case .normal: "normal"
+        case .warning: "warning"
+        case .critical: "critical"
+        }
+    }
+}
+
+/// One of the system page's four: the figure large in its state's color, what explains it beside and under it, and a
+/// graph of the last 10 minutes.
+struct SystemPanel<Chart: View>: View {
+    let label: String
+    let value: String
+    let unit: String
+    let color: Color
+    let info: String
+    let footer: Text
+    @ViewBuilder let chart: () -> Chart
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                TokenCaption(text: label)
+                    .padding(.trailing, 16)
+                Text(value)
+                    .font(Theme.font(64, .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(color)
+                Text(unit)
+                    .font(Theme.font(34, .bold))
+                    .foregroundStyle(color)
+                Spacer(minLength: 12)
+                Text(info)
+                    .font(Theme.font(28, .semibold))
+                    .foregroundStyle(Theme.secondary)
+            }
+            chart()
+                .frame(maxHeight: .infinity)
+            (footer + Text(" "))  // never empty, so the panels keep one height
+                .font(Theme.font(26, .semibold))
+                .foregroundStyle(Theme.secondary)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 22))
+    }
+}
+
+/// Up to 10 minutes of samples as filled lines, oldest on the left, the newest at the right edge; a gap where a sample
+/// is missing. A faint line marks half the range.
+struct StatChart: View {
+    let series: [[Double?]]
+    let range: ClosedRange<Double>
+    let colors: [Color]
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack {
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: size.height / 2))
+                    p.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                }
+                .stroke(Color.white.opacity(0.08), lineWidth: 2)
+                ForEach(Array(series.enumerated()), id: \.offset) { index, values in
+                    let color = colors[index % colors.count]
+                    area(values, size).fill(color.opacity(series.count > 1 ? 0.12 : 0.22))
+                    line(values, size).stroke(color, style: StrokeStyle(lineWidth: 3, lineJoin: .round))
+                }
+            }
+        }
+    }
+
+    private func point(_ i: Int, _ value: Double, _ size: CGSize) -> CGPoint {
+        let step = size.width / CGFloat(SystemHistory.capacity - 1)
+        let x = size.width - CGFloat(series[0].count - 1 - i) * step
+        let f = (min(range.upperBound, max(range.lowerBound, value)) - range.lowerBound) / (range.upperBound - range.lowerBound)
+        return CGPoint(x: x, y: size.height * (1 - CGFloat(f)))
+    }
+
+    private func line(_ values: [Double?], _ size: CGSize) -> Path {
+        Path { p in
+            var drawing = false
+            for (i, v) in values.enumerated() {
+                guard let v else { drawing = false; continue }
+                let pt = point(i, v, size)
+                if drawing { p.addLine(to: pt) } else { p.move(to: pt) }
+                drawing = true
+            }
+        }
+    }
+
+    private func area(_ values: [Double?], _ size: CGSize) -> Path {
+        Path { p in
+            var start: CGPoint?
+            var lastPoint: CGPoint?
+            func close() {
+                guard let s = start, let l = lastPoint else { return }
+                p.addLine(to: CGPoint(x: l.x, y: size.height))
+                p.addLine(to: CGPoint(x: s.x, y: size.height))
+                p.closeSubpath()
+            }
+            for (i, v) in values.enumerated() {
+                guard let v else { close(); start = nil; lastPoint = nil; continue }
+                let pt = point(i, v, size)
+                if start == nil { p.move(to: pt); start = pt } else { p.addLine(to: pt) }
+                lastPoint = pt
+            }
+            close()
+        }
+    }
+}
+
 // MARK: alert card
 
 /// The alert card on the dock screen (`alerts.card`): what needs you, large enough to read from the chair, over the page
@@ -1467,6 +1656,13 @@ enum Fmt {
     /// 0.37 → "37", for a meter that draws its % smaller.
     static func wholePercent(_ x: Double) -> String {
         "\(Int((x * 100).rounded()))"
+    }
+
+    /// A size the way Finder shows it (10^9 bytes a GB): "0 GB", "512 GB", "1.2 TB".
+    static func size(_ bytes: Double) -> String {
+        let gb = max(0, bytes) / 1e9
+        if gb >= 999.5 { return String(format: "%.1f TB", gb / 1000) }
+        return gb >= 10 || gb == 0 ? "\(Int(gb.rounded())) GB" : String(format: "%.1f GB", gb)
     }
 
     /// Memory in GB the way Activity Monitor counts it (2^30 bytes), without the unit: "13"
