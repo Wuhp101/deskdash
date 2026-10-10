@@ -27,6 +27,20 @@ enum DDC {
         return write(service, powerMode, on ? 1 : 4)  // 4: "DPM off", backlight out, woken by the next command
     }
 
+    private static let luminance: UInt8 = 0x10
+
+    /// The panel's backlight brightness, now and at most (often 0...100); nil if it does not answer.
+    static func brightness(display: CGDirectDisplayID) -> (current: Int, max: Int)? {
+        guard let service = service(for: display), let reply = readFull(service, luminance), reply.max > 0 else { return nil }
+        return (Int(reply.current), Int(reply.max))
+    }
+
+    @discardableResult
+    static func setBrightness(_ value: Int, display: CGDirectDisplayID) -> Bool {
+        guard let service = service(for: display) else { return false }
+        return write(service, luminance, UInt16(max(0, value)))
+    }
+
     /// Whether the panel answers DDC at all, by reading its power mode.
     static func answers(display: CGDirectDisplayID) -> Bool {
         guard let service = service(for: display) else { return false }
@@ -112,6 +126,11 @@ enum DDC {
     }
 
     private static func read(_ service: Service, _ vcp: UInt8) -> UInt16? {
+        readFull(service, vcp)?.current
+    }
+
+    /// A feature's current and maximum values: the reply's bytes 6-7 and 8-9.
+    private static func readFull(_ service: Service, _ vcp: UInt8) -> (current: UInt16, max: UInt16)? {
         var request: [UInt8] = [0x82, 0x01, vcp, 0]
         request[3] = request[0..<3].reduce(0x6E ^ 0x51) { $0 ^ $1 }
         var reply = [UInt8](repeating: 0, count: 12)
@@ -119,8 +138,9 @@ enum DDC {
             usleep(10_000)
             guard IOAVServiceWriteI2C(service, 0x37, 0x51, &request, UInt32(request.count)) == kIOReturnSuccess else { continue }
             usleep(50_000)
-            if IOAVServiceReadI2C(service, 0x37, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess, reply[4] == vcp {
-                return UInt16(reply[8]) << 8 | UInt16(reply[9])
+            if IOAVServiceReadI2C(service, 0x37, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess, reply[4] == vcp,
+               reply[3] == 0 {
+                return (UInt16(reply[8]) << 8 | UInt16(reply[9]), UInt16(reply[6]) << 8 | UInt16(reply[7]))
             }
         }
         return nil

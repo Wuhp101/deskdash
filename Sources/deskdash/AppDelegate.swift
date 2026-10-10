@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private let displays = DisplayManager()
     /// The dock screen's panel as deskdash last set it over DDC (`display.powerOff`).
     private var panelOff = false
+    /// The backlight level last sent over DDC, and the panel's maximum (`display.backlight`).
+    private var backlightSent: Int?
+    private var backlightMax = 100
     private var terminationSource: DispatchSourceSignal?
     private var window: NSWindow?
     private var displayAssertion: IOPMAssertionID = 0
@@ -69,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         dash.managesScreen = !options.windowed
         applyConfig()
         setPanel(on: true)  // in case a previous run was stopped while the panel was off
+        probeBacklight()
         watchTermination()
         agents.start()
         music.start()
@@ -95,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             if n % 2 == 0 { stats.sample() }
             dash.tick()
             if dash.screenOff != panelOff { setPanel(on: !dash.screenOff) }
+            updateBacklight()
             tokens.tick()
             limits.tick()
             photos.tick()
@@ -142,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func screensChanged() {
         if !options.windowed { displays.check() }
+        probeBacklight()
         placeWindow()
     }
 
@@ -299,7 +305,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // someone sitting at the dock screen cannot see, and this is the way back.
         let virtual = item("Virtual Main Display When Alone", #selector(menuToggleVirtual))
         virtual.state = dash.config.display.virtualMain ? .on : .off
-        items += [.separator(), virtual]
+        // Sleep and quiet now, against the schedule, until it next changes.
+        let sleep = item("Sleep (Dock Screen Off)", #selector(menuToggleSleep))
+        sleep.state = dash.sleepingNow ? .on : .off
+        let quiet = item("Quiet (No Sounds)", #selector(menuToggleQuiet))
+        quiet.state = dash.quietNow ? .on : .off
+        items += [.separator(), sleep, quiet, .separator(), virtual]
         items.append(.separator())
         items.append(hiddenUntil == nil ? item("Hide for 10 Minutes", #selector(menuHide))
                                         : item("Show Dashboard", #selector(menuShow)))
@@ -313,6 +324,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func menuPrevious() { dash.advance(-1) }
     @objc private func menuTogglePause() { dash.paused.toggle() }
     @objc private func menuHide() { hide(minutes: 10) }
+
+    @objc private func menuToggleSleep() {
+        dash.toggleSleep()
+        log(dash.sleepingNow ? "sleep turned on from the menu" : "sleep turned off from the menu")
+    }
+
+    @objc private func menuToggleQuiet() {
+        dash.toggleQuiet()
+        log(dash.quietNow ? "quiet turned on from the menu" : "quiet turned off from the menu")
+    }
 
     @objc private func menuToggleVirtual() {
         var config = dash.config
@@ -419,6 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// login, or when scripts/install-service.sh runs.
     private func quit() {
         setPanel(on: true, wait: true)
+        restoreBacklight()
         if let label = launchdJob {
             log("quit from the dashboard: unloading \(label) until the next login")
             let launchctl = Process()
@@ -470,6 +492,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
     }
 
+    /// Whether the dock screen's backlight answers DDC, and its range: then dimming turns it down.
+    private func probeBacklight() {
+        guard !options.windowed, dash.config.display.backlight, let id = dockScreen?.displayID else {
+            if dash.backlightControl { dash.backlightControl = false }
+            return
+        }
+        Task {
+            let found = await Task.detached(priority: .utility) { DDC.brightness(display: id) }.value
+            backlightMax = found?.max ?? 100
+            backlightSent = nil  // send the level again: the panel may be a new one
+            if dash.backlightControl != (found != nil) {
+                dash.backlightControl = found != nil
+                log(found != nil ? "dimming with the dock screen's backlight (DDC, 0-\(backlightMax))" : "dimming by drawing")
+            }
+        }
+    }
+
+    /// On the tick: the backlight follows the schedule's level, or a Settings slider's while it moves.
+    private func updateBacklight() {
+        guard dash.backlightControl, !panelOff, let id = dockScreen?.displayID else { return }
+        let level = Int((dash.brightness * Double(backlightMax)).rounded())
+        guard level != backlightSent else { return }
+        backlightSent = level
+        Task.detached(priority: .userInitiated) { DDC.setBrightness(level, display: id) }
+    }
+
+    /// Leaves the backlight at the daytime level when deskdash stops, not dimmed for a night it no longer manages.
+    private func restoreBacklight() {
+        guard dash.backlightControl, let id = dockScreen?.displayID else { return }
+        let level = Int((min(1, max(0.05, dash.config.schedule.dayBrightness)) * Double(backlightMax)).rounded())
+        let done = DispatchSemaphore(value: 0)
+        Task.detached { DDC.setBrightness(level, display: id); done.signal() }
+        _ = done.wait(timeout: .now() + 1)
+    }
+
     private var dockScreen: NSScreen? {
         let match = dash.config.display.match.lowercased()
         return match.isEmpty ? nil : NSScreen.screens.first { $0.localizedName.lowercased().contains(match) }
@@ -480,7 +537,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.setPanel(on: true, wait: true) }
+            MainActor.assumeIsolated {
+                self?.setPanel(on: true, wait: true)
+                self?.restoreBacklight()
+            }
             exit(0)
         }
         source.resume()
@@ -503,6 +563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             dash.demo.toggle()
             if dash.demo { dash.alert(.waiting) }
         case "albums": photos.logAlbums()
+        case "sleep": menuToggleSleep()
+        case "quiet": menuToggleQuiet()
         case "chime":
             let kind: Chime.Kind? = switch argument {
             case "waiting": .waiting

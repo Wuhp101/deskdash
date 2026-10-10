@@ -13,6 +13,7 @@
     "virtualHiDPI": false,          // render it at twice that, like a Retina display
     "powerOff": true,               // when it goes black (schedule.idleMinutes, schedule.sleep), turn the panel off over
                                     // DDC too, backlight and all, if it takes the command (a private macOS API)
+    "backlight": true,              // dim at night with the panel's backlight over DDC, keeping contrast, if it takes it
   },
   "pages": {
     "order": ["clock", "music", "photos", "climate", "markets", "agents", "limits", "tokens", "system"],  // all but clock and markets only rotate in when they have data
@@ -92,6 +93,12 @@
     "idleMinutes": 0,               // black after this many minutes without keyboard or mouse input; input or an alert
                                     // brings it back (0 = never)
     "sleep": "",                    // sleep hours, e.g. "23:00-08:00": black whatever happens, and the displays may sleep
+    "quiet": "",                    // quiet hours, e.g. "23:00-08:00": alerts make no sound
+    "weekend": {                    // Saturday's and Sunday's own sleep and quiet hours
+      "enabled": false,
+      "sleep": "",
+      "quiet": "",
+    },
   },
   "alerts": {                       // when a session needs you, one finishes, or a limit runs low
     "sound": false,                 // play a sound, again until someone uses the keyboard or mouse
@@ -103,6 +110,5 @@
     "volume": 1,                    // only when notify is false
     "repeatSeconds": 30,            // the first repeat; each wait is half as long again, up to repeatMaxSeconds
     "repeatMaxSeconds": 180,
-    "quietAtNight": true,           // no sound in schedule.dim's window
   },
 }

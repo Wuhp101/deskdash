@@ -76,6 +76,12 @@ final class Dashboard {
     @ObservationIgnored var managesScreen = false
     /// The dock screen is the main display, where someone at the Mac works; set by AppDelegate's stacking.
     @ObservationIgnored var dockIsMain = false
+    /// The dock screen's backlight answers DDC, so dimming turns it down rather than drawing black over the page.
+    var backlightControl = false
+    /// Sleep or quiet turned on or off from the menu, and what the schedule said then: it holds until the schedule
+    /// itself changes, then the schedule rules again.
+    @ObservationIgnored private var manualSleep: (on: Bool, scheduled: Bool)?
+    @ObservationIgnored private var manualQuiet: (on: Bool, scheduled: Bool)?
     /// Claude Code's and Codex's tokens by day; nil while the tokens page is off.
     var tokens: TokenHistory?
     /// The token heatmap's top row, as Calendar's weekday (1 is Sunday); nil follows this Mac's calendar.
@@ -147,6 +153,8 @@ final class Dashboard {
     func tick() {
         now = Date()
         if let until = doneFlashUntil, now >= until { doneFlashUntil = nil }
+        if let m = manualSleep, m.scheduled != scheduledSleep { manualSleep = nil }
+        if let m = manualQuiet, m.scheduled != scheduledQuiet { manualQuiet = nil }
         if managesScreen {
             // Sleep hours keep it dark, unless it is the main display and someone is using the Mac: then it is their
             // screen, and going dark would leave them with nothing to see.
@@ -382,8 +390,24 @@ final class Dashboard {
         return min(1, max(0.05, level))
     }
 
-    /// Sleep hours: the dock screen stays black, alerts or not.
-    var sleepingNow: Bool { DailyWindow(config.schedule.sleep)?.contains(now) ?? false }
+    /// Sleep hours: the dock screen stays black, alerts or not. The schedule's (weekdays' or the weekend's), or the menu's.
+    var sleepingNow: Bool {
+        if let m = manualSleep, m.scheduled == scheduledSleep { return m.on }
+        return scheduledSleep
+    }
+
+    private var scheduledSleep: Bool { config.schedule.sleepWindow(at: now)?.contains(now) ?? false }
+    private var scheduledQuiet: Bool { config.schedule.quietWindow(at: now)?.contains(now) ?? false }
+
+    /// The menu's Sleep and Quiet: the opposite of now, until the schedule next changes.
+    func toggleSleep() {
+        manualSleep = (!sleepingNow, scheduledSleep)
+        tick()
+    }
+
+    func toggleQuiet() {
+        manualQuiet = (!quietNow, scheduledQuiet)
+    }
 
     /// Nobody has touched the keyboard or mouse for `schedule.idleMinutes`.
     private var idleNow: Bool {
@@ -394,9 +418,10 @@ final class Dashboard {
     /// one just finished, an alert card, a chime still ringing.
     private var alertUp: Bool { anyWaiting || doneFlash || card != nil || chime.ringing != nil }
 
-    /// No sounds in the night window, when `alerts.quietAtNight` is on.
+    /// Quiet hours: alerts make no sound. The schedule's (weekdays' or the weekend's), or the menu's.
     var quietNow: Bool {
-        config.alerts.quietAtNight && (DailyWindow(config.schedule.dim)?.contains(now) ?? false)
+        if let m = manualQuiet, m.scheduled == scheduledQuiet { return m.on }
+        return scheduledQuiet
     }
 
     var keepAwakeNow: Bool {

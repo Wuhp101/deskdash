@@ -36,6 +36,9 @@ struct Config: Codable, Equatable, Sendable {
         /// When the dock screen goes black (`schedule.idleMinutes`, `schedule.sleep`), also turn its panel off over
         /// DDC/CI, backlight and all, if it takes the command. Otherwise it is only drawn black.
         var powerOff = true
+        /// Dim the dock screen at night (`schedule.dim`) with its panel's backlight over DDC/CI, which keeps the
+        /// picture's contrast, if it takes the command. Otherwise black is drawn over the page.
+        var backlight = true
     }
 
     struct Pages: Codable, Equatable, Sendable {
@@ -180,6 +183,30 @@ struct Config: Codable, Equatable, Sendable {
         /// "HH:MM-HH:MM": sleep hours, when the dock screen stays black whatever happens, and the displays may sleep.
         /// "" has none.
         var sleep = ""
+        /// "HH:MM-HH:MM": quiet hours, when alerts make no sound. "" has none.
+        var quiet = ""
+        /// Saturday's and Sunday's own sleep and quiet hours, when `enabled`; otherwise every day has the ones above.
+        var weekend = Weekend()
+
+        struct Weekend: Codable, Equatable, Sendable {
+            var enabled = false
+            var sleep = ""
+            var quiet = ""
+        }
+
+        /// The day a moment falls on decides: Saturday 01:00 has Saturday's hours.
+        func isWeekend(_ date: Date) -> Bool {
+            let day = Calendar.current.component(.weekday, from: date)
+            return day == 1 || day == 7
+        }
+
+        func sleepWindow(at date: Date) -> DailyWindow? {
+            DailyWindow(weekend.enabled && isWeekend(date) ? weekend.sleep : sleep)
+        }
+
+        func quietWindow(at date: Date) -> DailyWindow? {
+            DailyWindow(weekend.enabled && isWeekend(date) ? weekend.quiet : quiet)
+        }
     }
 
     struct Alerts: Codable, Equatable, Sendable {
@@ -200,8 +227,6 @@ struct Config: Codable, Equatable, Sendable {
         /// `repeatSeconds`, each wait half as long again as the last, up to `repeatMaxSeconds`. 0 plays it once.
         var repeatSeconds = 30.0
         var repeatMaxSeconds = 180.0
-        /// No sound in the night window (`schedule.dim`).
-        var quietAtNight = true
     }
 }
 
@@ -240,6 +265,7 @@ extension Config.Display {
         virtualHeight = try c.get(.virtualHeight, d.virtualHeight)
         virtualHiDPI = try c.get(.virtualHiDPI, d.virtualHiDPI)
         powerOff = try c.get(.powerOff, d.powerOff)
+        backlight = try c.get(.backlight, d.backlight)
     }
 }
 
@@ -360,6 +386,16 @@ extension Config.Music {
     }
 }
 
+extension Config.Schedule.Weekend {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Self()
+        enabled = try c.get(.enabled, d.enabled)
+        sleep = try c.get(.sleep, d.sleep)
+        quiet = try c.get(.quiet, d.quiet)
+    }
+}
+
 extension Config.Photos {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -382,6 +418,8 @@ extension Config.Schedule {
         dayBrightness = try c.get(.dayBrightness, d.dayBrightness)
         idleMinutes = try c.get(.idleMinutes, d.idleMinutes)
         sleep = try c.get(.sleep, d.sleep)
+        quiet = try c.get(.quiet, d.quiet)
+        weekend = try c.get(.weekend, d.weekend)
     }
 }
 
@@ -398,7 +436,6 @@ extension Config.Alerts {
         notify = try c.get(.notify, d.notify)
         repeatSeconds = try c.get(.repeatSeconds, d.repeatSeconds)
         repeatMaxSeconds = try c.get(.repeatMaxSeconds, d.repeatMaxSeconds)
-        quietAtNight = try c.get(.quietAtNight, d.quietAtNight)
     }
 }
 

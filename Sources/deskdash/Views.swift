@@ -137,7 +137,7 @@ struct Stage: View {
                     .padding(22)
                     .frame(maxHeight: .infinity, alignment: .top)
             }
-            if dash.brightness < 1 {
+            if dash.brightness < 1 && !dash.backlightControl {  // with DDC the backlight dims instead, contrast kept
                 Color.black.opacity(1 - dash.brightness).allowsHitTesting(false)
             }
         }

@@ -273,15 +273,34 @@ private struct GeneralSettings: View {
                 StepSlider(title: L10n.t("Turn the dock screen off when the Mac is unused for"),
                            value: model.setting(\.schedule.idleMinutes), steps: [0, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120],
                            format: { $0 == 0 ? L10n.t("Never") : "\(Int($0)) " + L10n.t("min") })
-                Toggle(L10n.t("Sleep hours"), isOn: windowOn(\.sleep, fallback: "23:00-08:00"))
+                let weekend = draft.schedule.weekend.enabled
+                Toggle(L10n.t(weekend ? "Sleep hours on weekdays" : "Sleep hours"), isOn: windowOn(\.sleep, fallback: "23:00-08:00"))
                 if !draft.schedule.sleep.isEmpty {
                     WindowPicker(text: model.setting(\.schedule.sleep))
+                }
+                Toggle(L10n.t(weekend ? "Quiet hours on weekdays" : "Quiet hours"), isOn: windowOn(\.quiet, fallback: "23:00-08:00"))
+                if !draft.schedule.quiet.isEmpty {
+                    WindowPicker(text: model.setting(\.schedule.quiet))
+                }
+                Toggle(L10n.t("Saturday and Sunday have their own hours"), isOn: model.setting(\.schedule.weekend.enabled))
+                if weekend {
+                    Toggle(L10n.t("Sleep hours on weekends"), isOn: windowOn(\.weekend.sleep, fallback: draft.schedule.sleep.isEmpty
+                                                                         ? "23:00-08:00" : draft.schedule.sleep))
+                    if !draft.schedule.weekend.sleep.isEmpty {
+                        WindowPicker(text: model.setting(\.schedule.weekend.sleep))
+                    }
+                    Toggle(L10n.t("Quiet hours on weekends"), isOn: windowOn(\.weekend.quiet, fallback: draft.schedule.quiet.isEmpty
+                                                                         ? "23:00-08:00" : draft.schedule.quiet))
+                    if !draft.schedule.weekend.quiet.isEmpty {
+                        WindowPicker(text: model.setting(\.schedule.weekend.quiet))
+                    }
                 }
                 Toggle(L10n.t("Turn the panel itself off, backlight and all, rather than only drawing black"),
                        isOn: model.setting(\.display.powerOff))
                 Text(L10n.t("The dock screen goes black when no one has used the keyboard or mouse for that long, and comes "
                     + "back with any input or alert. In sleep hours it stays black, alerts or not, and the displays may sleep. "
-                    + "Turning the panel off uses DDC/CI, which most monitors take; it saves the backlight."))
+                    + "Turning the panel off uses DDC/CI, which most monitors take; it saves the backlight.") + L10n.space
+                    + L10n.t("In quiet hours alerts make no sound. The menu bar's Sleep and Quiet switch either now, until the schedule next changes."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -292,6 +311,8 @@ private struct GeneralSettings: View {
                     WindowPicker(text: model.setting(\.schedule.dim))
                     brightness(L10n.t("At night"), \.dimBrightness)
                 }
+                Toggle(L10n.t("Dim with the panel's backlight, keeping the picture's contrast"),
+                       isOn: model.setting(\.display.backlight))
                 Text(L10n.t("While you drag a slider, the dock screen shows that level."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -842,7 +863,9 @@ private struct AlertsSettings: View {
                     }
                     Toggle(L10n.t("Through Notification Center, so a Focus or Sleep keeps it quiet"),
                            isOn: model.setting(\.alerts.notify))
-                    Toggle(L10n.t("No sound at night"), isOn: model.setting(\.alerts.quietAtNight))
+                    Text(L10n.t("Quiet hours are under General → Schedule."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Text(L10n.t("The sound stops when someone uses this Mac's keyboard or mouse."))
                     .font(.caption)

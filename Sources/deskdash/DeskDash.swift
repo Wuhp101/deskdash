@@ -134,9 +134,10 @@ struct Options: Sendable {
           scrolled down).
       deskdash ctl next | prev | pause | resume | reload | demo | page NAME | capture FILE
                  | hide [MINUTES] | show | quit | telegram [CHANNEL] | settings [TAB] | settings-close
-                 | capture-settings FILE | chime waiting | done | limit | albums
+                 | capture-settings FILE | chime waiting | done | limit | albums | sleep | quiet
           Control the running dashboard. quit also stops the LaunchAgent that runs it, until the next login. chime
-          plays that alert's sound once, even with sounds off, to hear it. albums logs the Photos app's album names.
+          plays that alert's sound once, even with sounds off, to hear it. albums logs the Photos app's album names. sleep and quiet switch those now, as the menu does, until the
+          schedule next changes.
       deskdash config [--config FILE] [--save]
           Print the settings that differ from the defaults. --save rewrites the file the way Settings does.
       deskdash windows
