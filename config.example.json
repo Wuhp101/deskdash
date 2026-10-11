@@ -86,6 +86,7 @@
     "clock": true,                  // the time and date in the corner
   },
   "schedule": {
+    "keepAwakeOutsideSleep": false, // hold the displays awake whenever it is not sleep hours, instead of keepAwake's window
     "keepAwake": "08:00-23:00",     // hold the displays awake in this window ("" = never; macOS can't keep only one awake)
     "dim": "23:00-08:00",           // the night: draw at dimBrightness in this window ("" = never)
     "dimBrightness": 0.35,          // at night

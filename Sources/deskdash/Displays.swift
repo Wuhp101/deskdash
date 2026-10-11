@@ -15,6 +15,7 @@ final class DisplayManager {
     private var virtual: DDVirtualDisplay?
     private var aloneSince: Date?
     private var note = ""
+    private var noteAt = Date.distantPast
 
     func apply(_ cfg: Config.Display) {
         let resized = cfg.virtualWidth != self.cfg.virtualWidth || cfg.virtualHeight != self.cfg.virtualHeight
@@ -82,9 +83,11 @@ final class DisplayManager {
             : "could not make \(Self.name(target)) the main display (error \(result.rawValue))")
     }
 
+    /// Logs a change once, but the same one again after a minute: a display handed back and forth is worth seeing.
     private func say(_ text: String) {
-        guard text != note else { return }
+        guard text != note || Date().timeIntervalSince(noteAt) > 60 else { return }
         note = text
+        noteAt = Date()
         log(text)
     }
 

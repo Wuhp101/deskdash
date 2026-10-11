@@ -268,7 +268,10 @@ private struct GeneralSettings: View {
             Section(L10n.t("Schedule")) {
                 Toggle(L10n.t("Keep the displays awake"), isOn: windowOn(\.keepAwake, fallback: "08:00-23:00"))
                 if !draft.schedule.keepAwake.isEmpty {
-                    WindowPicker(text: model.setting(\.schedule.keepAwake))
+                    Toggle(L10n.t("Whenever it is not sleep hours"), isOn: model.setting(\.schedule.keepAwakeOutsideSleep))
+                    if !draft.schedule.keepAwakeOutsideSleep {
+                        WindowPicker(text: model.setting(\.schedule.keepAwake))
+                    }
                 }
                 StepSlider(title: L10n.t("Turn the dock screen off when the Mac is unused for"),
                            value: model.setting(\.schedule.idleMinutes), steps: [0, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120],

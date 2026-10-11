@@ -465,7 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                                      "deskdash keeps the desk display on" as CFString, &id)
             if result == kIOReturnSuccess {
                 displayAssertion = id
-                log("holding displays awake (schedule \(dash.config.schedule.keepAwake))")
+                log("holding displays awake (" + (dash.config.schedule.keepAwakeOutsideSleep ? "outside sleep hours"
+                    : "schedule \(dash.config.schedule.keepAwake)") + ")")
             }
         } else if !want, displayAssertion != 0 {
             IOPMAssertionRelease(displayAssertion)

@@ -172,6 +172,9 @@ struct Config: Codable, Equatable, Sendable {
     struct Schedule: Codable, Equatable, Sendable {
         /// "HH:MM-HH:MM": hold the displays awake in this window. "" never does.
         var keepAwake = "08:00-23:00"
+        /// Hold them awake whenever it is not sleep hours instead, weekdays' or the weekend's, so the window follows
+        /// the schedule. macOS sleeping the displays also ends a Sidecar session, which does not come back by itself.
+        var keepAwakeOutsideSleep = false
         /// "HH:MM-HH:MM": draw the dashboard at `dimBrightness` in this window, and at `dayBrightness` the rest of
         /// the day. "" never dims.
         var dim = "23:00-08:00"
@@ -413,6 +416,7 @@ extension Config.Schedule {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Self()
         keepAwake = try c.get(.keepAwake, d.keepAwake)
+        keepAwakeOutsideSleep = try c.get(.keepAwakeOutsideSleep, d.keepAwakeOutsideSleep)
         dim = try c.get(.dim, d.dim)
         dimBrightness = try c.get(.dimBrightness, d.dimBrightness)
         dayBrightness = try c.get(.dayBrightness, d.dayBrightness)

@@ -425,6 +425,7 @@ final class Dashboard {
     }
 
     var keepAwakeNow: Bool {
-        DailyWindow(config.schedule.keepAwake)?.contains(now) ?? false
+        if config.schedule.keepAwakeOutsideSleep { return !sleepingNow }
+        return DailyWindow(config.schedule.keepAwake)?.contains(now) ?? false
     }
 }

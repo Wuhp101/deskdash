@@ -82,6 +82,7 @@ enum L10n {
         "Read %@": "讀 %@", "write %@": "寫 %@",
         "System (CPU, temperature, memory and SSD over 10 minutes)": "系統（最近 10 分鐘的 CPU、溫度、記憶體與 SSD）",
         // Settings
+        "Whenever it is not sleep hours": "休眠時間以外都保持（跟著平日／假日的休眠時間）",
         "Sleep (Dock Screen Off)": "休眠（關閉擴充座螢幕）",
         "Quiet (No Sounds)": "靜音（不播放提醒音）",
         "Sleep hours on weekdays": "平日休眠時間",
