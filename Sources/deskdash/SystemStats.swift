@@ -1,4 +1,6 @@
+import AppKit
 import Darwin
+import DiskArbitration
 import Foundation
 import IOKit
 
@@ -15,11 +17,10 @@ struct SystemStats: Equatable, Sendable {
     var memoryUsed: Double  // bytes in active, wired and compressed pages
     var memoryTotal: Double
     var pressure: Pressure
-    var diskUsed: Double?  // share of the startup disk in use, 0...1, with purgeable space counted as free
+    var volumes: [VolumeUsage] = []  // the Mac's own volumes and the attached ones, the startup disk first
     var download: Double?  // bytes a second over the Ethernet and Wi-Fi interfaces
     var upload: Double?
     // For the system page:
-    var diskFree: Double? = nil  // bytes free on the startup disk, as Finder counts them
     var diskRead: Double? = nil  // bytes a second read from and written to the Mac's disks
     var diskWrite: Double? = nil
     var swapUsed: Double = 0  // bytes of swap in use
@@ -27,10 +28,29 @@ struct SystemStats: Equatable, Sendable {
 
     var memory: Double { memoryTotal > 0 ? memoryUsed / memoryTotal : 0 }
 
+    /// The volume closest to full: what the clock page's one storage meter shows.
+    var fullest: VolumeUsage? { volumes.max { $0.used < $1.used } }
+
     static let demo = SystemStats(cpu: 0.23, temperature: 51, thermal: .nominal, memoryUsed: 13.4 * 1_073_741_824,
-                                  memoryTotal: 24 * 1_073_741_824, pressure: .normal, diskUsed: 0.48,
-                                  download: 1_240_000, upload: 310_000, diskFree: 512_000_000_000,
+                                  memoryTotal: 24 * 1_073_741_824, pressure: .normal,
+                                  volumes: [VolumeUsage(name: "Macintosh HD", path: "/", isInternal: true,
+                                                        total: 494_000_000_000, free: 257_000_000_000),
+                                            VolumeUsage(name: "Archive", path: "/Volumes/Archive", isInternal: false,
+                                                        total: 2_000_000_000_000, free: 380_000_000_000)],
+                                  download: 1_240_000, upload: 310_000,
                                   diskRead: 18_400_000, diskWrite: 3_100_000, swapUsed: 0, load: 2.4)
+}
+
+/// One volume's space: free as Finder counts it, purgeable files included.
+struct VolumeUsage: Equatable, Sendable, Identifiable {
+    let name: String
+    let path: String
+    let isInternal: Bool  // the Mac's own, rather than attached
+    let total: Double  // bytes
+    let free: Double
+
+    var used: Double { total > 0 ? min(1, max(0, 1 - free / total)) : 0 }
+    var id: String { path }
 }
 
 /// The last 10 minutes of the Mac's load, a sample every 2 s, for the system page's graphs.
@@ -139,8 +159,9 @@ final class SystemStatsService {
     private var cpuTicks: [UInt32]?
     private var netBytes: [String: (rx: UInt64, tx: UInt64)] = [:]
     private var netSampled: TimeInterval?
-    private var diskUsed: Double?
-    private var diskFree: Double?
+    private var volumes: [VolumeUsage] = []
+    private var volumesTask: Task<Void, Never>?
+    private var mountObservers: [NSObjectProtocol] = []
     private var diskBytes: (read: UInt64, write: UInt64)?
     private let processes = ProcessSampler()
     private var processesBusy = false
@@ -170,10 +191,18 @@ final class SystemStatsService {
         _ = read()  // a baseline, so the first sample on the tick already has rates
         diskTask = Task {
             while !Task.isCancelled {
-                let disk = await Task.detached(priority: .utility) { Self.readDisk() }.value
-                diskUsed = disk?.used
-                diskFree = disk?.free
+                readVolumesNow()
                 try? await Task.sleep(for: .seconds(60))
+            }
+        }
+        // A drive plugged in or ejected shows at once rather than at the next minute.
+        if mountObservers.isEmpty {
+            let center = NSWorkspace.shared.notificationCenter
+            for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+                         NSWorkspace.didRenameVolumeNotification] {
+                mountObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.readVolumesNow() }
+                })
             }
         }
         temperatureTask = Task {
@@ -207,9 +236,7 @@ final class SystemStatsService {
     func prime() async {
         apply(dash.config.stats)
         guard enabled else { return }
-        let disk = Self.readDisk()
-        diskUsed = disk?.used
-        diskFree = disk?.free
+        volumes = Self.readVolumes()
         temperature = CPUTemperature.shared?.read()
         try? await Task.sleep(for: .seconds(1))
         sample()
@@ -266,8 +293,8 @@ final class SystemStatsService {
         return SystemStats(cpu: cpu, temperature: temperature, thermal: ProcessInfo.processInfo.thermalState,
                            memoryUsed: Double(pages) * pageSize,
                            memoryTotal: Double(ProcessInfo.processInfo.physicalMemory),
-                           pressure: SystemStats.Pressure(rawValue: level) ?? .normal, diskUsed: diskUsed,
-                           download: download, upload: upload, diskFree: diskFree, diskRead: diskRead,
+                           pressure: SystemStats.Pressure(rawValue: level) ?? .normal, volumes: volumes,
+                           download: download, upload: upload, diskRead: diskRead,
                            diskWrite: diskWrite, swapUsed: Double(swap.xsu_used), load: loads[0])
     }
 
@@ -329,14 +356,38 @@ final class SystemStatsService {
         return out
     }
 
-    /// Free space as Finder counts it, purgeable files included, which is why it goes through CacheDelete.
-    nonisolated private static func readDisk() -> (used: Double, free: Double)? {
-        guard let values = try? URL(fileURLWithPath: "/").resourceValues(
-                  forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]),
-              let total = values.volumeTotalCapacity, total > 0,
-              let free = values.volumeAvailableCapacityForImportantUsage
-        else { return nil }
-        return (min(1, max(0, 1 - Double(free) / Double(total))), Double(free))
+    private func readVolumesNow() {
+        guard enabled, volumesTask == nil else { return }
+        volumesTask = Task {
+            volumes = await Task.detached(priority: .utility) { Self.readVolumes() }.value
+            volumesTask = nil
+        }
+    }
+
+    /// The volumes Finder shows: local, browsable, not hidden (Recovery, Preboot) and not disk images; the startup
+    /// disk first, then the Mac's own, then attached ones, by name. Free space as Finder counts it, purgeable files
+    /// included, which goes through CacheDelete (6-40 ms a volume), so it runs once a minute, off the main thread, and
+    /// when a volume is mounted or ejected.
+    nonisolated private static func readVolumes() -> [VolumeUsage] {
+        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey, .volumeIsBrowsableKey,
+                                      .volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
+                                      .volumeAvailableCapacityKey]
+        let session = DASessionCreate(kCFAllocatorDefault)
+        var out: [VolumeUsage] = []
+        for url in FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
+            guard let v = try? url.resourceValues(forKeys: Set(keys)), v.volumeIsLocal == true, v.volumeIsBrowsable != false,
+                  let total = v.volumeTotalCapacity, total > 0
+            else { continue }
+            if let session, let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
+               let description = DADiskCopyDescription(disk) as? [String: Any],
+               let kind = description[kDADiskDescriptionDeviceProtocolKey as String] as? String,
+               kind == "Disk Image" || kind == "Virtual Interface" { continue }
+            let free = v.volumeAvailableCapacityForImportantUsage.map(Double.init) ?? Double(v.volumeAvailableCapacity ?? 0)
+            out.append(VolumeUsage(name: v.volumeLocalizedName ?? url.lastPathComponent, path: url.path,
+                                   isInternal: v.volumeIsInternal ?? (url.path == "/"), total: Double(total), free: free))
+        }
+        func rank(_ v: VolumeUsage) -> Int { v.path == "/" ? 0 : v.isInternal ? 1 : 2 }
+        return out.sorted { (rank($0), $0.name) < (rank($1), $1.name) }
     }
 
     /// Bytes read and written since boot by every disk (the IOBlockStorageDriver statistics Activity Monitor's Disk tab

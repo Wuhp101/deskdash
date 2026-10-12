@@ -80,7 +80,8 @@ enum L10n {
         "Pressure %@ · swap %@": "壓力 %@ · 置換 %@",
         "%@ free": "可用 %@",
         "Read %@": "讀 %@", "write %@": "寫 %@",
-        "System (CPU, temperature, memory and SSD over 10 minutes)": "系統（最近 10 分鐘的 CPU、溫度、記憶體與 SSD）",
+        "System (CPU, temperature, memory and storage over 10 minutes)": "系統（最近 10 分鐘的 CPU、溫度、記憶體與儲存空間）",
+        "STORAGE": "儲存空間", "This Mac": "本機", "External": "外接",
         // Settings
         "Whenever it is not sleep hours": "休眠時間以外都保持（跟著平日／假日的休眠時間）",
         "Sleep (Dock Screen Off)": "休眠（關閉擴充座螢幕）",

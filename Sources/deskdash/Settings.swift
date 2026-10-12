@@ -205,7 +205,7 @@ private struct GeneralSettings: View {
          PageOption(id: "markets", title: L10n.t("Markets")), PageOption(id: "agents", title: L10n.t("Agents")),
          PageOption(id: "limits", title: L10n.t("Limits (what is left of the Claude and Codex plans)")),
          PageOption(id: "tokens", title: L10n.t("Tokens (what the coding agents used)")),
-         PageOption(id: "system", title: L10n.t("System (CPU, temperature, memory and SSD over 10 minutes)"))]
+         PageOption(id: "system", title: L10n.t("System (CPU, temperature, memory and storage over 10 minutes)"))]
     }
 
     var body: some View {

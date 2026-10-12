@@ -249,7 +249,7 @@ struct StatsRow: View {
 
     var body: some View {
         let cpu = stats.cpu.map { ($0 * 100).rounded() / 100 }  // the color follows the number shown
-        let disk = stats.diskUsed.map { ($0 * 100).rounded() / 100 }
+        let disk = stats.fullest.map { ($0.used * 100).rounded() / 100 }  // the volume closest to full
         HStack(alignment: .center, spacing: 0) {
             StatMeter(label: "CPU", value: cpu.map(Fmt.wholePercent), unit: "%", fraction: cpu,
                       color: Theme.quality(cpu, fair: 0.7, poor: 0.9))
@@ -262,8 +262,7 @@ struct StatsRow: View {
             StatMeter(label: "RAM", value: Fmt.gigabytes(stats.memoryUsed), unit: "GB", fraction: stats.memory,
                       color: Theme.color(stats.pressure))
             Spacer(minLength: 20)
-            StatMeter(label: "SSD", value: disk.map(Fmt.wholePercent), unit: "%", fraction: disk,
-                      color: Theme.quality(disk, fair: 0.8, poor: 0.9))
+            StorageMeter(volumes: stats.volumes, fullest: disk)
             Spacer(minLength: 20)
             NetworkRates(download: stats.download, upload: stats.upload)
         }
@@ -1027,16 +1026,7 @@ struct SystemPage: View {
                             footer: Text(L10n.f("Pressure %@ · swap %@", L10n.t(Self.pressure(s.pressure)), Fmt.size(s.swapUsed)))) {
                     StatChart(series: [h.memory], range: 0...1, colors: [Theme.color(s.pressure)])
                 }
-                SystemPanel(label: "SSD", value: s.diskUsed.map(Fmt.wholePercent) ?? "–", unit: "%",
-                            color: Theme.quality(s.diskUsed.map { $0 * 100 }, fair: 80, poor: 90),
-                            info: s.diskFree.map { L10n.f("%@ free", Fmt.size($0)) } ?? "",
-                            // The words in their lines' colors, as the graph's legend.
-                            footer: SystemPage.legend(L10n.f("Read %@", Fmt.rate(s.diskRead ?? 0)),
-                                                      L10n.f("write %@", Fmt.rate(s.diskWrite ?? 0)))) {
-                    // Throughput, which moves, rather than space used, which hardly does. Read in blue, write in amber.
-                    let peak = max(4_000_000, (h.diskRead + h.diskWrite).compactMap { $0 }.max() ?? 0)
-                    StatChart(series: [h.diskRead, h.diskWrite], range: 0...peak, colors: [Theme.working, Theme.waiting])
-                }
+                StoragePanel(volumes: s.volumes, history: h, read: s.diskRead, write: s.diskWrite)
             }
         }
         .padding(.horizontal, 40)
@@ -1065,6 +1055,127 @@ struct SystemPage: View {
         case .warning: "warning"
         case .critical: "critical"
         }
+    }
+}
+
+/// The clock page's storage meter: the fullest volume's figure, as the other meters show theirs, over a thin bar per
+/// volume (up to four), each in its own fullness's color, so how many drives there are, and which is filling, shows too.
+struct StorageMeter: View {
+    let volumes: [VolumeUsage]
+    let fullest: Double?
+
+    var body: some View {
+        let color = Theme.quality(fullest, fair: 0.8, poor: 0.9)
+        let bars = Array(volumes.prefix(4))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(L10n.t("STORAGE"))
+                    .font(Theme.font(28, .heavy))
+                    .tracking(2)
+                    .foregroundStyle(Theme.secondary)
+                    .fixedSize()
+                Spacer(minLength: 8)
+                Text(fullest.map(Fmt.wholePercent) ?? "–")
+                    .font(Theme.font(46, .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(fullest == nil ? Theme.faint : color)
+                if fullest != nil {
+                    Text("%").font(Theme.font(30, .bold)).foregroundStyle(color).padding(.leading, 2)
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            GeometryReader { geo in
+                let gap: CGFloat = 4
+                let height = max(4, (geo.size.height - gap * CGFloat(max(0, bars.count - 1))) / CGFloat(max(1, bars.count)))
+                VStack(spacing: gap) {
+                    ForEach(bars) { v in
+                        let c = Theme.quality(v.used, fair: 0.8, poor: 0.9)
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: min(4, height / 2)).fill(Color.white.opacity(0.12))
+                            RoundedRectangle(cornerRadius: min(4, height / 2)).fill(c)
+                                .frame(width: max(height, geo.size.width * v.used))
+                        }
+                        .frame(height: height)
+                    }
+                }
+            }
+            .frame(height: 26)
+        }
+        .frame(width: 205)
+    }
+}
+
+/// The system page's storage: a row per volume, the Mac's own and attached ones, each with how full it is in the meter
+/// colors and what is free, and under them every disk's reads and writes over the 10 minutes, which move where space
+/// used hardly does. Three rows fit: with more, the startup disk and the fullest of the rest show, and a count of the others.
+struct StoragePanel: View {
+    let volumes: [VolumeUsage]
+    let history: SystemHistory
+    let read: Double?
+    let write: Double?
+
+    var body: some View {
+        let shown = Self.pick(volumes)
+        let others = volumes.count - shown.count
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                TokenCaption(text: L10n.t("STORAGE") + (others > 0 ? "  " + L10n.more(others) : ""))
+                Spacer(minLength: 12)
+                // The words in their lines' colors, as the graph's legend.
+                SystemPage.legend(L10n.f("Read %@", Fmt.rate(read ?? 0)), L10n.f("write %@", Fmt.rate(write ?? 0)))
+                    .font(Theme.font(26, .semibold))
+            }
+            ForEach(shown) { VolumeRow(volume: $0) }
+            let peak = max(4_000_000, (history.diskRead + history.diskWrite).compactMap { $0 }.max() ?? 0)
+            StatChart(series: [history.diskRead, history.diskWrite], range: 0...peak, colors: [Theme.working, Theme.waiting])
+                .frame(minHeight: 24, maxHeight: .infinity)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    /// Up to three, in their usual order: the startup disk, then the fullest of the others.
+    private static func pick(_ volumes: [VolumeUsage]) -> [VolumeUsage] {
+        guard volumes.count > 3 else { return volumes }
+        let kept = Set([volumes[0].id] + volumes.dropFirst().sorted { $0.used > $1.used }.prefix(2).map(\.id))
+        return volumes.filter { kept.contains($0.id) }
+    }
+}
+
+struct VolumeRow: View {
+    let volume: VolumeUsage
+
+    var body: some View {
+        let color = Theme.quality(volume.used * 100, fair: 80, poor: 90)
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(volume.name)
+                    .font(Theme.font(28, .bold))
+                    .foregroundStyle(Theme.text)
+                Text(L10n.t(volume.isInternal ? "This Mac" : "External") + " · " + L10n.f("%@ free", Fmt.size(volume.free)))
+                    .font(Theme.font(22, .semibold))
+                    .foregroundStyle(Theme.secondary)
+            }
+            .minimumScaleFactor(0.7)
+            .frame(width: 210, alignment: .leading)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.14))
+                    Capsule().fill(color).frame(width: max(geo.size.height, geo.size.width * volume.used))
+                }
+            }
+            .frame(height: 14)
+            Text(Fmt.wholePercent(volume.used) + "%")
+                .font(Theme.font(40, .bold))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .frame(width: 100, alignment: .trailing)
+        }
+        .frame(height: 48)
     }
 }
 
